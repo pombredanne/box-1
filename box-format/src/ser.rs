@@ -1,7 +1,7 @@
 use std::io::{prelude::*, SeekFrom};
 
 use byteorder::{LittleEndian, WriteBytesExt};
-use vlq::WriteVlqExt;
+use vlq::fast::WriteVlqExt;
 
 use crate::{
     AttrMap, BoxHeader, BoxMetadata, BoxPath, Compression, DirectoryRecord, FileRecord, Record,
@@ -14,7 +14,7 @@ pub(crate) trait Serialize {
 
 impl<T: Serialize> Serialize for Vec<T> {
     fn write<W: Write + Seek>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_vlq(self.len())?;
+        writer.write_fast_vlq(self.len())?;
 
         for item in self.iter() {
             item.write(writer)?;
@@ -25,14 +25,14 @@ impl<T: Serialize> Serialize for Vec<T> {
 
 impl Serialize for String {
     fn write<W: Write + Seek>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_vlq(self.len())?;
+        writer.write_fast_vlq(self.len())?;
         writer.write_all(self.as_bytes())
     }
 }
 
 impl Serialize for Vec<u8> {
     fn write<W: Write + Seek>(&self, writer: &mut W) -> std::io::Result<()> {
-        writer.write_vlq(self.len())?;
+        writer.write_fast_vlq(self.len())?;
         writer.write_all(&*self)
     }
 }
@@ -44,10 +44,10 @@ impl Serialize for AttrMap {
         // Write it as u64::MAX, then seek back
         let size_index = writer.seek(SeekFrom::Current(0))?;
         writer.write_u64::<LittleEndian>(std::u64::MAX)?;
-        writer.write_vlq(self.len())?;
+        writer.write_fast_vlq(self.len())?;
 
         for (key, value) in self.iter() {
-            writer.write_vlq(*key)?;
+            writer.write_fast_vlq(*key)?;
             value.write(writer)?;
         }
 
@@ -98,7 +98,7 @@ impl Serialize for LinkRecord {
         writer.write_u8(0x2)?;
 
         self.path.write(writer)?;
-        self.target.write(writer)?;
+        writer.write_fast_vlq(self.target)?;
         self.attrs.write(writer)
     }
 }

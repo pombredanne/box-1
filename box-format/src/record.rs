@@ -26,7 +26,7 @@ impl Record {
     }
 
     #[inline(always)]
-    pub fn as_symlink(&self) -> Option<&LinkRecord> {
+    pub fn as_link(&self) -> Option<&LinkRecord> {
         match self {
             Record::Link(link) => Some(link),
             _ => None,
@@ -42,16 +42,16 @@ impl Record {
         }
     }
 
-    #[inline(always)]
-    pub fn name(&self) -> String {
-        self.path()
-            .to_path_buf()
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string()
-    }
+    // #[inline(always)]
+    // pub fn name(&self) -> String {
+    //     self.path()
+    //         .to_path_buf()
+    //         .file_name()
+    //         .unwrap()
+    //         .to_str()
+    //         .unwrap()
+    //         .to_string()
+    // }
 
     #[inline(always)]
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
@@ -80,6 +80,8 @@ impl Record {
 
 #[derive(Debug)]
 pub struct LinkRecord {
+    pub parent: NonZeroU64,
+
     /// The path to the symbolic link itself, which points to the target. A path is always relative (no leading separator),
     /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
     /// any `.` or `..` path chunks.
@@ -88,7 +90,9 @@ pub struct LinkRecord {
     /// The target path of the symbolic link, which is the place the link points to. A path is always relative (no leading separator),
     /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
     /// any `.` or `..` path chunks.
-    pub target: BoxPath,
+    // pub target: BoxPath,
+
+    pub target: usize,
 
     /// Optional attributes for the given paths, such as Windows or Unix ACLs, last accessed time, etc.
     pub attrs: AttrMap,
@@ -109,10 +113,15 @@ impl LinkRecord {
 
 #[derive(Debug)]
 pub struct DirectoryRecord {
+    pub parent: NonZeroU64,
+
     /// The path of the directory. A path is always relative (no leading separator),
     /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
     /// any `.` or `..` path chunks.
     pub path: BoxPath,
+
+    /// List of inodes
+    pub files: Vec<usize>,
 
     /// Optional attributes for the given paths, such as Windows or Unix ACLs, last accessed time, etc.
     pub attrs: AttrMap,
@@ -133,6 +142,8 @@ impl DirectoryRecord {
 
 #[derive(Debug)]
 pub struct FileRecord {
+    pub parent: NonZeroU64,
+    
     /// a bytestring representing the type of compression being used, always 8 bytes.
     pub compression: Compression,
 

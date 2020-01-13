@@ -116,8 +116,7 @@ impl BoxFileReader {
 
     #[inline(always)]
     pub fn resolve_link(&self, record: &LinkRecord) -> Option<&Record> {
-        let path = &record.target;
-        self.meta.records.iter().find(|r| r.path() == path)
+        self.meta.records.get(record.target)
     }
 
     #[inline(always)]
@@ -153,20 +152,24 @@ impl BoxFileReader {
             }
             Record::Directory(dir) => std::fs::create_dir_all(path.join(&dir.path.to_path_buf())),
             #[cfg(unix)]
-            Record::Link(link) => std::os::unix::fs::symlink(
-                &link.path.to_path_buf(),
-                &link.target.to_path_buf(),
-            ),
+            Record::Link(link) => {
+                // std::os::unix::fs::symlink(
+                //     &link.path.to_path_buf(),
+                //     &link.target.to_path_buf(),
+                // )
+                Ok(())
+            },
             #[cfg(windows)]
             Record::Link(link) => {
-                let source = link.path.to_path_buf();
-                let destination = link.target.to_path_buf();
+                // let source = link.path.to_path_buf();
+                // let destination = link.target.to_path_buf();
 
-                if destination.is_dir() {
-                    std::os::windows::fs::symlink_dir(&source, &destination)
-                } else {
-                    std::os::windows::fs::symlink_file(&source, &destination)
-                }
+                // if destination.is_dir() {
+                //     std::os::windows::fs::symlink_dir(&source, &destination)
+                // } else {
+                //     std::os::windows::fs::symlink_file(&source, &destination)
+                // }
+                Ok(())
             }
         }
     }

@@ -116,9 +116,9 @@ mod tests {
     #[test]
     fn sanitisation() {
         let box_path = BoxPath::new("/something/../somethingelse/./foo.txt").unwrap();
-        assert_eq!(box_path, *"somethingelse\x1ffoo.txt");
+        assert_eq!(box_path.0, "somethingelse\x1ffoo.txt");
         let box_path = BoxPath::new("../something/../somethingelse/./foo.txt/.").unwrap();
-        assert_eq!(box_path, *"somethingelse\x1ffoo.txt");
+        assert_eq!(box_path.0, "somethingelse\x1ffoo.txt");
 
         // This one will do different things on Windows and Unix, because Unix loves a good backslash
         let box_path = BoxPath::new(r"..\something\..\somethingelse\.\foo.txt\.");

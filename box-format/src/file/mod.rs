@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::io::{prelude::*, SeekFrom};
 use std::num::NonZeroU64;
 
-pub mod reader;
-pub mod writer;
+use fst;
 
 use crate::{de::DeserializeOwned, header::BoxHeader, record::Record};
+
+pub mod reader;
+pub mod writer;
 
 pub type AttrMap = HashMap<usize, Vec<u8>>;
 
@@ -14,6 +16,7 @@ pub struct BoxMetadata {
     pub(crate) records: Vec<Record>,
     pub(crate) attr_keys: Vec<String>,
     pub(crate) attrs: AttrMap,
+    // pub(crate) index: fst::Map,
 }
 
 impl BoxMetadata {

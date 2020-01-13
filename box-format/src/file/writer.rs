@@ -18,9 +18,9 @@ use crate::{
 
 use super::{read_header, read_trailer, BoxMetadata};
 
-#[derive(Debug)]
 pub struct BoxFileWriter {
     pub(crate) file: BufWriter<File>,
+    pub(crate) index: fst::MapBuilder<Vec<u8>>,
     pub(crate) path: PathBuf,
     pub(crate) header: BoxHeader,
     pub(crate) meta: BoxMetadata,
@@ -105,6 +105,7 @@ impl BoxFileWriter {
 
                 let f = BoxFileWriter {
                     file: BufWriter::new(file),
+                    index: panic!("Need to implement reading from stream into a new builder"),
                     path: path.as_ref().to_path_buf().canonicalize()?,
                     header,
                     meta,
@@ -124,6 +125,7 @@ impl BoxFileWriter {
             .and_then(|file| {
                 Ok(BoxFileWriter {
                     file: BufWriter::new(file),
+                    index: fst::MapBuilder::memory(),
                     path: path.as_ref().to_path_buf().canonicalize()?,
                     header: BoxHeader::default(),
                     meta: BoxMetadata::default(),
@@ -149,6 +151,7 @@ impl BoxFileWriter {
             .and_then(|file| {
                 Ok(BoxFileWriter {
                     file: BufWriter::new(file),
+                    index: fst::MapBuilder::memory(),
                     path: path.as_ref().to_path_buf().canonicalize()?,
                     header: BoxHeader::with_alignment(alignment),
                     meta: BoxMetadata::default(),
