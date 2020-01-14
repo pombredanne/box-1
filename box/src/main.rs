@@ -190,39 +190,40 @@ fn append(
     allow_hidden: bool,
     verbose: bool,
 ) -> Result<()> {
-    let bf = BoxFileWriter::open(&path).context(CannotOpenArchive { path: &path })?;
+    // let bf = BoxFileWriter::open(&path).context(CannotOpenArchive { path: &path })?;
 
-    let (known_dirs, known_files) = {
-        (
-            bf.metadata()
-                .records()
-                .iter()
-                .filter_map(|x| x.as_directory())
-                .map(|r| r.path.clone())
-                .collect::<std::collections::HashSet<_>>(),
-            bf.metadata()
-                .records()
-                .iter()
-                .filter_map(|x| x.as_file())
-                .map(|r| r.path.clone())
-                .collect::<std::collections::HashSet<_>>(),
-        )
-    };
+    // let (known_dirs, known_files) = {
+    //     (
+    //         bf.metadata()
+    //             .records()
+    //             .iter()
+    //             .filter_map(|x| x.as_directory())
+    //             .map(|r| r.path.clone())
+    //             .collect::<std::collections::HashSet<_>>(),
+    //         bf.metadata()
+    //             .records()
+    //             .iter()
+    //             .filter_map(|x| x.as_file())
+    //             .map(|r| r.path.clone())
+    //             .collect::<std::collections::HashSet<_>>(),
+    //     )
+    // };
 
-    process_files(
-        selected_files.into_iter(),
-        recursive,
-        allow_hidden,
-        verbose,
-        compression,
-        bf,
-        known_dirs,
-        known_files,
-    )
-    .map_err(Box::new)
-    .context(CannotAddFiles { path: &path })?;
+    // process_files(
+    //     selected_files.into_iter(),
+    //     recursive,
+    //     allow_hidden,
+    //     verbose,
+    //     compression,
+    //     bf,
+    //     known_dirs,
+    //     known_files,
+    // )
+    // .map_err(Box::new)
+    // .context(CannotAddFiles { path: &path })?;
 
-    Ok(())
+    // Ok(())
+    todo!()
 }
 
 macro_rules! add {
@@ -308,10 +309,12 @@ fn list(path: &Path, _selected_files: Vec<PathBuf>, verbose: bool) -> Result<()>
     println!("-------------  -------------  -------------  ---------------------  ----------  ---------  --------");
     println!(" Method         Compressed     Length         Created                Attrs       CRC32      Path");
     println!("-------------  -------------  -------------  ---------------------  ----------  ---------  --------");
-    for record in metadata.records().iter() {
+    for result in bf.iter() {
+        let record = result.record;
+
         let acl = unix_acl(record.attr(&bf, "unix.mode"));
         let time = time(record.attr(&bf, "created"));
-        let path = format_path(record.path(), record.as_directory().is_some());
+        let path = format_path(&result.path, record.as_directory().is_some());
 
         match record {
             Record::Directory(_) => {
@@ -321,17 +324,17 @@ fn list(path: &Path, _selected_files: Vec<PathBuf>, verbose: bool) -> Result<()>
                 );
             }
             Record::Link(link_record) => {
-                let target = format_path(
-                    &link_record.target,
-                    bf.resolve_link(&link_record)
-                        .map(|x| x.as_directory().is_some())
-                        .unwrap_or(false),
-                );
+                // let target = format_path(
+                //     &link_record.target,
+                //     bf.resolve_link(&link_record)
+                //         .map(|x| x.as_directory().is_some())
+                //         .unwrap_or(false),
+                // );
 
-                println!(
-                    " {:12}  {:>12}   {:>12}   {:<20}   {:<9}   {:>8}   {} -> {}",
-                    "<link>", "-", "-", time, acl, "-", path, target,
-                );
+                // println!(
+                //     " {:12}  {:>12}   {:>12}   {:<20}   {:<9}   {:>8}   {} -> {}",
+                //     "<link>", "-", "-", time, acl, "-", path, target,
+                // );
             }
             Record::File(record) => {
                 let length = record.length.file_size(options::BINARY).unwrap();
@@ -411,7 +414,7 @@ fn collect_parent_directories<P: AsRef<Path>>(path: P) -> Result<Vec<ParentDirs>
     let box_path = BoxPath::new(&path).context(CannotHandlePath {
         path: path.as_ref(),
     })?;
-    let levels = box_path.levels();
+    let levels = box_path.depth();
 
     let path = match path.as_ref().parent() {
         Some(v) => v,

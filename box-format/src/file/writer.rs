@@ -11,16 +11,19 @@ use memmap::MmapOptions;
 use crate::{
     compression::Compression,
     header::BoxHeader,
-    path::{BoxPath},
+    path::BoxPath,
     record::{DirectoryRecord, FileRecord, LinkRecord, Record},
     ser::Serialize,
 };
 
-use super::{read_header, read_trailer, BoxMetadata};
+use super::{
+    reader::{read_header, read_trailer},
+    BoxMetadata,
+};
+use crate::file::Inode;
 
 pub struct BoxFileWriter {
     pub(crate) file: BufWriter<File>,
-    pub(crate) index: fst::MapBuilder<Vec<u8>>,
     pub(crate) path: PathBuf,
     pub(crate) header: BoxHeader,
     pub(crate) meta: BoxMetadata,
@@ -59,9 +62,10 @@ impl BoxFileWriter {
 
     #[inline(always)]
     fn next_write_addr(&self) -> NonZeroU64 {
+        // TODO: this is probably slow as hell
         let offset = self
             .meta
-            .records
+            .inodes
             .iter()
             .rev()
             .find_map(|r| r.as_file())
@@ -105,7 +109,6 @@ impl BoxFileWriter {
 
                 let f = BoxFileWriter {
                     file: BufWriter::new(file),
-                    index: panic!("Need to implement reading from stream into a new builder"),
                     path: path.as_ref().to_path_buf().canonicalize()?,
                     header,
                     meta,
@@ -125,7 +128,6 @@ impl BoxFileWriter {
             .and_then(|file| {
                 Ok(BoxFileWriter {
                     file: BufWriter::new(file),
-                    index: fst::MapBuilder::memory(),
                     path: path.as_ref().to_path_buf().canonicalize()?,
                     header: BoxHeader::default(),
                     meta: BoxMetadata::default(),
@@ -151,7 +153,6 @@ impl BoxFileWriter {
             .and_then(|file| {
                 Ok(BoxFileWriter {
                     file: BufWriter::new(file),
-                    index: fst::MapBuilder::memory(),
                     path: path.as_ref().to_path_buf().canonicalize()?,
                     header: BoxHeader::with_alignment(alignment),
                     meta: BoxMetadata::default(),
@@ -180,35 +181,62 @@ impl BoxFileWriter {
         &self.meta
     }
 
+    #[inline(always)]
+    fn iter(&self) -> super::reader::Records {
+        super::reader::Records::new(self.metadata(), &*self.metadata().root, None)
+    }
+
     pub fn mkdir(&mut self, path: BoxPath, attrs: HashMap<String, Vec<u8>>) -> std::io::Result<()> {
-        let attrs = attrs
-            .into_iter()
-            .map(|(k, v)| {
-                let k = self.meta.attr_key_or_create(&k);
-                (k, v)
-            })
-            .collect::<HashMap<_, _>>();
+        // let attrs = attrs
+        //     .into_iter()
+        //     .map(|(k, v)| {
+        //         let k = self.meta.attr_key_or_create(&k);
+        //         (k, v)
+        //     })
+        //     .collect::<HashMap<_, _>>();
 
-        self.meta
-            .records
-            .push(Record::Directory(DirectoryRecord { path, attrs }));
-        Ok(())
+        // self.meta
+        //     .records
+        //     .push(Record::Directory(DirectoryRecord::new(name)));
+        // Ok(())
+
+        todo!("This needs to be recursive now :D")
     }
 
-    pub fn link(&mut self, path: BoxPath, target: BoxPath, attrs: HashMap<String, Vec<u8>>) -> std::io::Result<()> {
-        let attrs = attrs
-            .into_iter()
-            .map(|(k, v)| {
-                let k = self.meta.attr_key_or_create(&k);
-                (k, v)
-            })
-            .collect::<HashMap<_, _>>();
+    pub fn link(
+        &mut self,
+        path: BoxPath,
+        target: BoxPath,
+        attrs: HashMap<String, Vec<u8>>,
+    ) -> std::io::Result<()> {
+        todo!()
+        // let attrs = attrs
+        //     .into_iter()
+        //     .map(|(k, v)| {
+        //         let k = self.meta.attr_key_or_create(&k);
+        //         (k, v)
+        //     })
+        //     .collect::<HashMap<_, _>>();
 
-        self.meta
-            .records
-            .push(Record::Link(LinkRecord { path, target, attrs }));
-        Ok(())
+        // self.meta.records.push(Record::Link(LinkRecord {
+        //     path,
+        //     target,
+        //     attrs,
+        // }));
+        // Ok(())
     }
+
+    // #[inline(always)]
+
+    // fn insert_into_inode(
+    //     &mut self,
+    //     compression: Compression,
+    //     inode: Option<Inode>,
+    //     value: &mut R,
+    //     attrs: HashMap<String, Vec<u8>>,
+    // ) -> std::io::Result<&FileRecord> {
+
+    // }
 
     pub fn insert<R: Read>(
         &mut self,
@@ -217,8 +245,32 @@ impl BoxFileWriter {
         value: &mut R,
         attrs: HashMap<String, Vec<u8>>,
     ) -> std::io::Result<&FileRecord> {
-        let data = self.next_write_addr();
-        let bytes = self.write_data::<R>(compression, data.get(), value)?;
+        // Find the parent inode to add this to
+        let inode = match path.parent() {
+            None => {
+                // This means we're at the root
+                None // return self.insert_into_root(compression, path, value, attrs);
+            }
+            Some(path) => {
+                // Find the record for this path
+                let result = self.iter().find(|x| x.path == path);
+                let result = match result {
+                    Some(v) => v,
+                    None => todo!(),
+                };
+
+                if result.record.as_directory().is_none() {
+                    todo!()
+                }
+
+                // Check if other inodes are this path
+                // TODO
+                Some(result.inode)
+            }
+        };
+
+        let next_addr = self.next_write_addr();
+        let byte_count = self.write_data::<R>(compression, next_addr.get(), value)?;
         let attrs = attrs
             .into_iter()
             .map(|(k, v)| {
@@ -227,26 +279,31 @@ impl BoxFileWriter {
             })
             .collect::<HashMap<_, _>>();
 
-        // Check there isn't already a record for this path
-        if self.meta.records.iter().any(|x| x.path() == &path) {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AlreadyExists,
-                "path already found",
-            ));
-        }
-
         let record = FileRecord {
             compression,
-            length: bytes.write,
-            decompressed_length: bytes.read,
-            path,
-            data,
+            length: byte_count.write,
+            decompressed_length: byte_count.read,
+            name: path.filename(),
+            data: next_addr,
             attrs,
         };
 
-        self.meta.records.push(Record::File(record));
+        self.meta.inodes.push(Record::File(record));
+        let file_inode = Inode::new(self.meta.inodes.len() as u64).unwrap();
 
-        Ok(&self.meta.records.last().unwrap().as_file().unwrap())
+        if let Some(inode) = inode {
+            let record = self
+                .meta
+                .record_mut(inode)
+                .unwrap()
+                .as_directory_mut()
+                .unwrap();
+            record.inodes.push(file_inode);
+        } else {
+            self.meta.root.push(file_inode);
+        }
+
+        Ok(&self.meta.inodes.last().unwrap().as_file().unwrap())
     }
 
     pub unsafe fn data(&self, record: &FileRecord) -> std::io::Result<memmap::Mmap> {
@@ -270,20 +327,19 @@ impl BoxFileWriter {
         key: S,
         value: Vec<u8>,
     ) -> Result<()> {
-        let key = self.meta.attr_key_or_create(key.as_ref());
+        let inode = match self.iter().find(|r| &r.path == path) {
+            Some(v) => v.inode,
+            None => todo!()
+        };
 
-        if let Some(record) = self.meta.records.iter_mut().find(|r| r.path() == path) {
-            record.attrs_mut().insert(key, value);
-        }
+        let key = self.meta.attr_key_or_create(key.as_ref());
+        let record = self.meta.record_mut(inode).unwrap();
+        record.attrs_mut().insert(key, value);
 
         Ok(())
     }
 
-    pub fn set_file_attr<S: AsRef<str>>(
-        &mut self,
-        key: S,
-        value: Vec<u8>,
-    ) -> Result<()> {
+    pub fn set_file_attr<S: AsRef<str>>(&mut self, key: S, value: Vec<u8>) -> Result<()> {
         let key = self.meta.attr_key_or_create(key.as_ref());
 
         self.meta.attrs.insert(key, value);

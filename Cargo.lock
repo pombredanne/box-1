@@ -84,7 +84,7 @@ dependencies = [
  "relative-path 1.0.0 (git+https://github.com/udoprog/relative-path?branch=relative)",
  "unic-normal 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "unic-ucd 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "vlq-rust 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "vlq-rust 0.3.0 (git+https://github.com/bbqsrc/vlq-rust)",
 ]
 
 [[package]]
@@ -1295,7 +1295,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "vlq-rust"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/bbqsrc/vlq-rust#13190cc208a340adaaa8f74332fec9cd5c9438b7"
 
 [[package]]
 name = "wasi"
@@ -1523,7 +1523,7 @@ dependencies = [
 "checksum unicode-xid 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "826e7639553986605ec5979c7dd957c7895e93eabed50ab2ffa7f6128a75097c"
 "checksum url 2.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "75b414f6c464c879d7f9babf951f23bc3743fb7313c081b2e6ca719067ea9d61"
 "checksum vec_map 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "05c78687fb1a80548ae3250346c3db86a80a7cdd77bda190189f2d0a0987c81a"
-"checksum vlq-rust 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "92df9f304db3c3e6f98cbddda21acf5b7d2fd6e2334a9a6ee02fc18554fc17b8"
+"checksum vlq-rust 0.3.0 (git+https://github.com/bbqsrc/vlq-rust)" = "<none>"
 "checksum wasi 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b89c3ce4ce14bdc6fb6beaf9ec7928ca331de5df7e5ea278375642a2f478570d"
 "checksum winapi 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)" = "8093091eeb260906a183e6ae1abdba2ef5ef2257a21801128899c3fc699229c6"
 "checksum winapi-i686-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"

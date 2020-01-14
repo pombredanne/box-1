@@ -1,4 +1,9 @@
-use crate::{compression::Compression, path::BoxPath, AttrMap, BoxFileReader};
+use crate::{compression::Compression, path::BoxPath, AttrMap};
+
+#[cfg(feature = "reader")]
+use crate::file::reader::BoxFileReader;
+
+use crate::file::Inode;
 use std::num::NonZeroU64;
 
 #[derive(Debug)]
@@ -18,7 +23,23 @@ impl Record {
     }
 
     #[inline(always)]
+    pub fn as_file_mut(&mut self) -> Option<&mut FileRecord> {
+        match self {
+            Record::File(file) => Some(file),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
     pub fn as_directory(&self) -> Option<&DirectoryRecord> {
+        match self {
+            Record::Directory(dir) => Some(dir),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_directory_mut(&mut self) -> Option<&mut DirectoryRecord> {
         match self {
             Record::Directory(dir) => Some(dir),
             _ => None,
@@ -34,25 +55,23 @@ impl Record {
     }
 
     #[inline(always)]
-    pub fn path(&self) -> &BoxPath {
+    pub fn as_link_mut(&mut self) -> Option<&mut LinkRecord> {
         match self {
-            Record::File(file) => file.path(),
-            Record::Directory(dir) => dir.path(),
-            Record::Link(link) => link.path(),
+            Record::Link(link) => Some(link),
+            _ => None,
         }
     }
 
-    // #[inline(always)]
-    // pub fn name(&self) -> String {
-    //     self.path()
-    //         .to_path_buf()
-    //         .file_name()
-    //         .unwrap()
-    //         .to_str()
-    //         .unwrap()
-    //         .to_string()
-    // }
+    #[inline(always)]
+    pub fn name(&self) -> &str {
+        match self {
+            Record::File(file) => &*file.name,
+            Record::Directory(dir) => &*dir.name,
+            Record::Link(link) => &*link.name,
+        }
+    }
 
+    #[cfg(feature = "reader")]
     #[inline(always)]
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;
@@ -80,30 +99,20 @@ impl Record {
 
 #[derive(Debug)]
 pub struct LinkRecord {
-    pub parent: NonZeroU64,
-
-    /// The path to the symbolic link itself, which points to the target. A path is always relative (no leading separator),
-    /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
-    /// any `.` or `..` path chunks.
-    pub path: BoxPath,
+    pub name: String,
 
     /// The target path of the symbolic link, which is the place the link points to. A path is always relative (no leading separator),
     /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
     /// any `.` or `..` path chunks.
     // pub target: BoxPath,
-
-    pub target: usize,
+    pub inode: Inode,
 
     /// Optional attributes for the given paths, such as Windows or Unix ACLs, last accessed time, etc.
     pub attrs: AttrMap,
 }
 
 impl LinkRecord {
-    #[inline(always)]
-    pub fn path(&self) -> &BoxPath {
-        &self.path
-    }
-
+    #[cfg(feature = "reader")]
     #[inline(always)]
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;
@@ -113,26 +122,30 @@ impl LinkRecord {
 
 #[derive(Debug)]
 pub struct DirectoryRecord {
-    pub parent: NonZeroU64,
-
-    /// The path of the directory. A path is always relative (no leading separator),
-    /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
-    /// any `.` or `..` path chunks.
-    pub path: BoxPath,
+    /// The name of the directory
+    pub name: String, // TODO: BoxName
 
     /// List of inodes
-    pub files: Vec<usize>,
+    pub inodes: Vec<Inode>,
 
     /// Optional attributes for the given paths, such as Windows or Unix ACLs, last accessed time, etc.
     pub attrs: AttrMap,
 }
 
 impl DirectoryRecord {
-    #[inline(always)]
-    pub fn path(&self) -> &BoxPath {
-        &self.path
+    // #[inline(always)]
+    // pub fn path(&self) -> &BoxPath {
+    //     &self.path
+    // }
+    pub fn new(name: String) -> DirectoryRecord {
+        DirectoryRecord {
+            name,
+            inodes: vec![],
+            attrs: AttrMap::new(),
+        }
     }
 
+    #[cfg(feature = "reader")]
     #[inline(always)]
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;
@@ -142,8 +155,6 @@ impl DirectoryRecord {
 
 #[derive(Debug)]
 pub struct FileRecord {
-    pub parent: NonZeroU64,
-    
     /// a bytestring representing the type of compression being used, always 8 bytes.
     pub compression: Compression,
 
@@ -156,10 +167,8 @@ pub struct FileRecord {
     /// The position of the data in the file
     pub data: NonZeroU64,
 
-    /// The path of the file. A path is always relative (no leading separator),
-    /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
-    /// any `.` or `..` path chunks.
-    pub path: BoxPath,
+    /// The name of the file
+    pub name: String, // TODO: add BoxName
 
     /// Optional attributes for the given paths, such as Windows or Unix ACLs, last accessed time, etc.
     pub attrs: AttrMap,
@@ -171,11 +180,12 @@ impl FileRecord {
         self.compression
     }
 
-    #[inline(always)]
-    pub fn path(&self) -> &BoxPath {
-        &self.path
-    }
+    // #[inline(always)]
+    // pub fn path(&self) -> &BoxPath {
+    //     &self.path
+    // }
 
+    #[cfg(feature = "reader")]
     #[inline(always)]
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;

@@ -6,8 +6,8 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use vlq::fast::ReadVlqExt;
 
 use crate::{
-    AttrMap, BoxHeader, BoxMetadata, BoxPath, Compression, DirectoryRecord, FileRecord, Record,
-    LinkRecord,
+    AttrMap, BoxHeader, BoxMetadata, BoxPath, Compression, DirectoryRecord, FileRecord, LinkRecord,
+    Record,
 };
 
 use crate::compression::constants::*;
@@ -50,9 +50,9 @@ impl DeserializeOwned for AttrMap {
         let len: u64 = reader.read_fast_vlq()?;
         let mut buf = HashMap::with_capacity(len as usize);
         for _ in 0..len {
-            let key: usize = reader.read_fast_vlq()?;
+            let key = reader.read_fast_vlq()?;
             let value = Vec::deserialize_owned(reader)?;
-            buf.insert(key, value);
+            buf.insert(key as usize, value);
         }
         Ok(buf)
     }
@@ -60,58 +60,59 @@ impl DeserializeOwned for AttrMap {
 
 impl DeserializeOwned for FileRecord {
     fn deserialize_owned<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let parent = reader.read_fast_vlq()?;
         let compression = Compression::deserialize_owned(reader)?;
         let length = reader.read_u64::<LittleEndian>()?;
         let decompressed_length = reader.read_u64::<LittleEndian>()?;
         let data = reader.read_u64::<LittleEndian>()?;
-        let path = BoxPath::deserialize_owned(reader)?;
+        let name = String::deserialize_owned(reader)?; //BoxPath::deserialize_owned(reader)?;
         let attrs = HashMap::deserialize_owned(reader)?;
 
         Ok(FileRecord {
-            parent,
             compression,
             length,
             decompressed_length,
-            path,
+            name,
             attrs,
             data: NonZeroU64::new(data).expect("non zero"),
         })
     }
 }
 
+use crate::file::Inode;
+impl DeserializeOwned for Inode {
+    fn deserialize_owned<R: Read>(reader: &mut R) -> std::io::Result<Self> {
+        reader.read_fast_vlq().and_then(Inode::new)
+    }
+}
+
 impl DeserializeOwned for DirectoryRecord {
     fn deserialize_owned<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let parent = NonZeroU64::new(reader.read_fast_vlq()).expect("non zero");
-        let path = BoxPath::deserialize_owned(reader)?;
+        let name = String::deserialize_owned(reader)?;
 
-        // Files vec
-        let len: u64 = reader.read_fast_vlq()?;
-        let mut files = Vec::with_capacity(len as usize);
+        // Inodes vec
+        let len = reader.read_fast_vlq()? as usize;
+        let mut inodes = Vec::with_capacity(len);
         for _ in 0..len {
-            files.push(reader.read_fast_vlq()?);
+            inodes.push(Inode::deserialize_owned(reader)?);
         }
 
         let attrs = HashMap::deserialize_owned(reader)?;
 
-        Ok(DirectoryRecord { parent, path, files, attrs })
+        Ok(DirectoryRecord {
+            name,
+            inodes,
+            attrs,
+        })
     }
 }
 
 impl DeserializeOwned for LinkRecord {
     fn deserialize_owned<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let parent = NonZeroU64::new(reader.read_fast_vlq()).expect("non zero");
-
-        let path = BoxPath::deserialize_owned(reader)?;
-        let target = BoxPath::deserialize_owned(reader)?;
+        let name = String::deserialize_owned(reader)?;
+        let inode = Inode::deserialize_owned(reader)?; // BoxPath::deserialize_owned(reader)?;
         let attrs = HashMap::deserialize_owned(reader)?;
 
-        Ok(LinkRecord {
-            parent,
-            path,
-            target,
-            attrs,
-        })
+        Ok(LinkRecord { name, inode, attrs })
     }
 }
 
@@ -158,12 +159,14 @@ impl DeserializeOwned for BoxHeader {
 
 impl DeserializeOwned for BoxMetadata {
     fn deserialize_owned<R: Read>(reader: &mut R) -> std::io::Result<Self> {
-        let records = Vec::deserialize_owned(reader)?;
+        let root = Vec::deserialize_owned(reader)?;
+        let inodes = Vec::deserialize_owned(reader)?;
         let attr_keys = Vec::deserialize_owned(reader)?;
         let attrs = HashMap::deserialize_owned(reader)?;
 
         Ok(BoxMetadata {
-            records,
+            root,
+            inodes,
             attr_keys,
             attrs,
         })
