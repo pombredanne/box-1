@@ -109,10 +109,14 @@ impl DeserializeOwned for DirectoryRecord {
 impl DeserializeOwned for LinkRecord {
     fn deserialize_owned<R: Read>(reader: &mut R) -> std::io::Result<Self> {
         let name = String::deserialize_owned(reader)?;
-        let inode = Inode::deserialize_owned(reader)?; // BoxPath::deserialize_owned(reader)?;
+        let target = BoxPath::deserialize_owned(reader)?;
         let attrs = HashMap::deserialize_owned(reader)?;
 
-        Ok(LinkRecord { name, inode, attrs })
+        Ok(LinkRecord {
+            name,
+            target,
+            attrs,
+        })
     }
 }
 
@@ -145,7 +149,7 @@ impl DeserializeOwned for BoxHeader {
         }
 
         let version = reader.read_u32::<LittleEndian>()?;
-        let alignment = NonZeroU64::new(reader.read_u64::<LittleEndian>()?);
+        let alignment = reader.read_u64::<LittleEndian>()?;
         let trailer = reader.read_u64::<LittleEndian>()?;
 
         Ok(BoxHeader {

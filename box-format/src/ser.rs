@@ -105,7 +105,7 @@ impl Serialize for LinkRecord {
         writer.write_u8(0x2)?;
 
         self.name.write(writer)?;
-        self.inode.write(writer)?;
+        self.target.write(writer)?;
         self.attrs.write(writer)
     }
 }
@@ -124,7 +124,7 @@ impl Serialize for BoxHeader {
     fn write<W: Write + Seek>(&self, writer: &mut W) -> std::io::Result<()> {
         writer.write_all(&self.magic_bytes)?;
         writer.write_u32::<LittleEndian>(self.version)?;
-        writer.write_u64::<LittleEndian>(self.alignment.map(|x| x.get()).unwrap_or(0))?;
+        writer.write_u64::<LittleEndian>(self.alignment)?;
         writer.write_u64::<LittleEndian>(self.trailer.map(|x| x.get()).unwrap_or(0))
     }
 }

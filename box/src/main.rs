@@ -137,6 +137,15 @@ enum Commands {
     )]
     Extract {
         #[structopt(
+            short = "o",
+            long = "output",
+            name = "output",
+            parse(from_os_str),
+            help = "Output directory"
+        )]
+        output_path: Option<PathBuf>,
+
+        #[structopt(
             name = "boxfile",
             parse(from_os_str),
             help = "Path to the .box archive"
@@ -302,8 +311,8 @@ fn list(path: &Path, _selected_files: Vec<PathBuf>, verbose: bool) -> Result<()>
     }
 
     let alignment = match bf.alignment() {
-        Some(v) => format!("{} bytes", v.get()),
-        None => "None".into(),
+        0 => "None".into(),
+        v => format!("{} bytes", v),
     };
     println!("Box archive: {} (alignment: {})", path.display(), alignment);
     println!("-------------  -------------  -------------  ---------------------  ----------  ---------  --------");
@@ -366,46 +375,15 @@ fn list(path: &Path, _selected_files: Vec<PathBuf>, verbose: bool) -> Result<()>
     Ok(())
 }
 
-fn extract(path: &Path, _selected_files: Vec<PathBuf>, verbose: bool) -> Result<()> {
+fn extract(
+    path: &Path,
+    output_path: &Path,
+    _selected_files: Vec<PathBuf>,
+    verbose: bool,
+) -> Result<()> {
+    println!("{} {}", path.display(), output_path.display());
     let bf = BoxFileReader::open(path).context(CannotOpenArchive { path })?;
-    Ok(bf.extract_all(path).unwrap())
-    // let metadata = bf.metadata();
-
-    // for record in metadata.records().iter() {
-    //     let formatted_path = format_path(record);
-    //     if verbose {
-    //         println!("{}", formatted_path);
-    //     }
-
-    //     match record {
-    //         Record::File(file) => {
-    //             let out_file =
-    //                 std::fs::File::create(&formatted_path).context(CannotCreateFile { path })?;
-    //             let out_file = BufWriter::new(out_file);
-    //             bf.decompress(&file, out_file)
-    //                 .with_context(|| CannotDecompressFile {
-    //                     archive_path: file.path.clone(),
-    //                     target_path: path,
-    //                 })?;
-    //         }
-    //         Record::Directory(dir) => {
-    //             std::fs::create_dir_all(&dir.path.to_path_buf()).context(
-    //                 CannotCreateDirectory {
-    //                     path: dir.path.clone(),
-    //                 },
-    //             )?;
-    //         }
-    //         Record::Link(link) => {
-    //             std::fs::create_dir_all(&dir.path.to_path_buf()).context(
-    //                 CannotCreateDirectory {
-    //                     path: dir.path.clone(),
-    //                 },
-    //             )?;
-    //         }
-    //     }
-    // }
-
-    // Ok(())
+    Ok(bf.extract_all(output_path).unwrap())
 }
 
 type ParentDirs = (BoxPath, HashMap<String, Vec<u8>>);
@@ -701,7 +679,7 @@ fn create(
 ) -> Result<()> {
     let bf = match alignment {
         None => BoxFileWriter::create(&path),
-        Some(alignment) => BoxFileWriter::create_with_alignment(&path, alignment),
+        Some(alignment) => BoxFileWriter::create_with_alignment(&path, alignment.get()),
     }
     .context(CannotCreateArchive { path: &path })?;
 
@@ -739,7 +717,12 @@ fn main() -> Result<()> {
             opts.verbose,
         ),
         Commands::List { path } => list(&path, opts.selected_files, opts.verbose),
-        Commands::Extract { path } => extract(&path, opts.selected_files, opts.verbose),
+        Commands::Extract { path, output_path } => extract(
+            &path,
+            &output_path.unwrap_or_else(|| std::env::current_dir().expect("no pwd")),
+            opts.selected_files,
+            opts.verbose,
+        ),
         Commands::Create {
             path,
             alignment,

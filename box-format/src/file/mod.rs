@@ -60,6 +60,12 @@ impl BoxMetadata {
     }
 
     #[inline(always)]
+    pub fn insert_record(&mut self, record: Record) -> Inode {
+        self.inodes.push(record);
+        Inode::new(self.inodes.len() as u64).unwrap()
+    }
+
+    #[inline(always)]
     pub fn attr_key(&self, key: &str) -> Option<usize> {
         self.attr_keys.iter().position(|r| r == key)
     }
@@ -95,7 +101,12 @@ mod tests {
         cursor.seek(std::io::SeekFrom::Start(0));
 
         let mut writer = BoxFileWriter::create(filename).unwrap();
-        writer.insert(Compression::Stored, BoxPath::new("hello.txt").unwrap(), &mut cursor, HashMap::new());
+        writer.insert(
+            Compression::Stored,
+            BoxPath::new("hello.txt").unwrap(),
+            &mut cursor,
+            HashMap::new(),
+        );
     }
 
     #[test]
@@ -164,26 +175,26 @@ mod tests {
 
             let mut bf = f(filename);
 
-            // let mut dir_attrs = HashMap::new();
-            // dir_attrs.insert("created".into(), now.to_vec());
-            // dir_attrs.insert("unix.mode".into(), 0o755u16.to_le_bytes().to_vec());
+            let mut dir_attrs = HashMap::new();
+            dir_attrs.insert("created".into(), now.to_vec());
+            dir_attrs.insert("unix.mode".into(), 0o755u16.to_le_bytes().to_vec());
 
             let mut attrs = HashMap::new();
             attrs.insert("created".into(), now.to_vec());
             attrs.insert("unix.mode".into(), 0o644u16.to_le_bytes().to_vec());
 
-            // bf.mkdir(BoxPath::new("test").unwrap(), dir_attrs).unwrap();
+            bf.mkdir(BoxPath::new("test").unwrap(), dir_attrs).unwrap();
 
             bf.insert(
                 Compression::Zstd,
-                BoxPath::new("string.txt").unwrap(),
+                BoxPath::new("test/string.txt").unwrap(),
                 &mut std::io::Cursor::new(v.clone()),
                 attrs.clone(),
             )
             .unwrap();
             bf.insert(
                 Compression::Deflate,
-                BoxPath::new("string2.txt").unwrap(),
+                BoxPath::new("test/string2.txt").unwrap(),
                 &mut std::io::Cursor::new(v.clone()),
                 attrs.clone(),
             )
@@ -197,12 +208,12 @@ mod tests {
 
         assert_eq!(
             v,
-            bf.decompress_value::<String>(&bf.meta.inodes[0].as_file().unwrap())
+            bf.decompress_value::<String>(&bf.meta.inodes[1].as_file().unwrap())
                 .unwrap()
         );
         assert_eq!(
             v,
-            bf.decompress_value::<String>(&bf.meta.inodes[1].as_file().unwrap())
+            bf.decompress_value::<String>(&bf.meta.inodes[2].as_file().unwrap())
                 .unwrap()
         );
     }
@@ -213,10 +224,10 @@ mod tests {
             BoxFileWriter::create(n).unwrap()
         });
         insert_impl("./insert_garbage_align8.box", |n| {
-            BoxFileWriter::create_with_alignment(n, NonZeroU64::new(8).unwrap()).unwrap()
+            BoxFileWriter::create_with_alignment(n, 8).unwrap()
         });
         insert_impl("./insert_garbage_align7.box", |n| {
-            BoxFileWriter::create_with_alignment(n, NonZeroU64::new(7).unwrap()).unwrap()
+            BoxFileWriter::create_with_alignment(n, 7).unwrap()
         });
     }
 }

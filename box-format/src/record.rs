@@ -104,8 +104,7 @@ pub struct LinkRecord {
     /// The target path of the symbolic link, which is the place the link points to. A path is always relative (no leading separator),
     /// always delimited by a `UNIT SEPARATOR U+001F` (`"\x1f"`), and may not contain
     /// any `.` or `..` path chunks.
-    // pub target: BoxPath,
-    pub inode: Inode,
+    pub target: BoxPath,
 
     /// Optional attributes for the given paths, such as Windows or Unix ACLs, last accessed time, etc.
     pub attrs: AttrMap,
@@ -117,6 +116,11 @@ impl LinkRecord {
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;
         self.attrs.get(&key)
+    }
+
+    #[inline(always)]
+    pub fn upcast(self) -> Record {
+        Record::Link(self)
     }
 }
 
@@ -150,6 +154,11 @@ impl DirectoryRecord {
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;
         self.attrs.get(&key)
+    }
+
+    #[inline(always)]
+    pub fn upcast(self) -> Record {
+        Record::Directory(self)
     }
 }
 
@@ -190,5 +199,10 @@ impl FileRecord {
     pub fn attr<S: AsRef<str>>(&self, boxfile: &BoxFileReader, key: S) -> Option<&Vec<u8>> {
         let key = boxfile.metadata().attr_key(key.as_ref())?;
         self.attrs.get(&key)
+    }
+
+    #[inline(always)]
+    pub fn upcast(self) -> Record {
+        Record::File(self)
     }
 }

@@ -73,9 +73,8 @@ impl BoxFileWriter {
             .unwrap_or(std::mem::size_of::<BoxHeader>() as u64);
 
         let v = match self.header.alignment {
-            None => offset,
-            Some(alignment) => {
-                let alignment = alignment.get();
+            0 => offset,
+            alignment => {
                 let diff = offset % alignment;
                 if diff == 0 {
                     offset
@@ -143,7 +142,7 @@ impl BoxFileWriter {
     /// Will insert byte-aligned values based on provided `alignment` value. For best results, consider a power of 2.
     pub fn create_with_alignment<P: AsRef<Path>>(
         path: P,
-        alignment: NonZeroU64,
+        alignment: u64,
     ) -> std::io::Result<BoxFileWriter> {
         let mut boxfile = OpenOptions::new()
             .write(true)
@@ -168,7 +167,7 @@ impl BoxFileWriter {
         &self.path
     }
 
-    pub fn alignment(&self) -> Option<NonZeroU64> {
+    pub fn alignment(&self) -> u64 {
         self.header.alignment
     }
 
@@ -186,21 +185,60 @@ impl BoxFileWriter {
         super::reader::Records::new(self.metadata(), &*self.metadata().root, None)
     }
 
+    #[inline(always)]
+    fn insert_inner<F>(&mut self, path: BoxPath, create_record: F) -> std::io::Result<()>
+    where
+        F: FnOnce(&mut Self, &BoxPath) -> std::io::Result<Record>,
+    {
+        if path.depth() == 0 {
+            let record = create_record(self, &path)?;
+            let new_inode = self.meta.insert_record(record);
+            self.meta.root.push(new_inode);
+            return Ok(());
+        }
+
+        let result = super::reader::FindRecord::new(
+            self.metadata(),
+            path.parent().unwrap().iter().map(str::to_string).collect(),
+            &*self.meta.root,
+        )
+        .next();
+
+        match result {
+            None => return Err(todo!()),
+            Some(parent) => {
+                let record = create_record(self, &path)?;
+                let new_inode = self.meta.insert_record(record);
+                let parent = self
+                    .meta
+                    .record_mut(parent)
+                    .unwrap()
+                    .as_directory_mut()
+                    .unwrap();
+                parent.inodes.push(new_inode);
+                Ok(())
+            }
+        }
+    }
+
     pub fn mkdir(&mut self, path: BoxPath, attrs: HashMap<String, Vec<u8>>) -> std::io::Result<()> {
-        // let attrs = attrs
-        //     .into_iter()
-        //     .map(|(k, v)| {
-        //         let k = self.meta.attr_key_or_create(&k);
-        //         (k, v)
-        //     })
-        //     .collect::<HashMap<_, _>>();
+        self.insert_inner(path, move |this, path| {
+            let attrs = attrs
+                .into_iter()
+                .map(|(k, v)| {
+                    let k = this.meta.attr_key_or_create(&k);
+                    (k, v)
+                })
+                .collect::<HashMap<_, _>>();
 
-        // self.meta
-        //     .records
-        //     .push(Record::Directory(DirectoryRecord::new(name)));
-        // Ok(())
+            let dir_record = DirectoryRecord {
+                name: path.filename(),
+                inodes: vec![],
+                attrs,
+            };
 
-        todo!("This needs to be recursive now :D")
+            Ok(dir_record.upcast())
+        })
     }
 
     pub fn link(
@@ -209,34 +247,24 @@ impl BoxFileWriter {
         target: BoxPath,
         attrs: HashMap<String, Vec<u8>>,
     ) -> std::io::Result<()> {
-        todo!()
-        // let attrs = attrs
-        //     .into_iter()
-        //     .map(|(k, v)| {
-        //         let k = self.meta.attr_key_or_create(&k);
-        //         (k, v)
-        //     })
-        //     .collect::<HashMap<_, _>>();
+        self.insert_inner(path, move |this, path| {
+            let attrs = attrs
+                .into_iter()
+                .map(|(k, v)| {
+                    let k = this.meta.attr_key_or_create(&k);
+                    (k, v)
+                })
+                .collect::<HashMap<_, _>>();
 
-        // self.meta.records.push(Record::Link(LinkRecord {
-        //     path,
-        //     target,
-        //     attrs,
-        // }));
-        // Ok(())
+            let link_record = LinkRecord {
+                name: path.filename(),
+                target,
+                attrs,
+            };
+
+            Ok(link_record.upcast())
+        })
     }
-
-    // #[inline(always)]
-
-    // fn insert_into_inode(
-    //     &mut self,
-    //     compression: Compression,
-    //     inode: Option<Inode>,
-    //     value: &mut R,
-    //     attrs: HashMap<String, Vec<u8>>,
-    // ) -> std::io::Result<&FileRecord> {
-
-    // }
 
     pub fn insert<R: Read>(
         &mut self,
@@ -245,63 +273,28 @@ impl BoxFileWriter {
         value: &mut R,
         attrs: HashMap<String, Vec<u8>>,
     ) -> std::io::Result<&FileRecord> {
-        // Find the parent inode to add this to
-        let inode = match path.parent() {
-            None => {
-                // This means we're at the root
-                None // return self.insert_into_root(compression, path, value, attrs);
-            }
-            Some(path) => {
-                // Find the record for this path
-                let result = self.iter().find(|x| x.path == path);
-                let result = match result {
-                    Some(v) => v,
-                    None => todo!(),
-                };
+        self.insert_inner(path, move |this, path| {
+            let next_addr = this.next_write_addr();
+            let byte_count = this.write_data::<R>(compression, next_addr.get(), value)?;
+            let attrs = attrs
+                .into_iter()
+                .map(|(k, v)| {
+                    let k = this.meta.attr_key_or_create(&k);
+                    (k, v)
+                })
+                .collect::<HashMap<_, _>>();
 
-                if result.record.as_directory().is_none() {
-                    todo!()
-                }
+            let record = FileRecord {
+                compression,
+                length: byte_count.write,
+                decompressed_length: byte_count.read,
+                name: path.filename(),
+                data: next_addr,
+                attrs,
+            };
 
-                // Check if other inodes are this path
-                // TODO
-                Some(result.inode)
-            }
-        };
-
-        let next_addr = self.next_write_addr();
-        let byte_count = self.write_data::<R>(compression, next_addr.get(), value)?;
-        let attrs = attrs
-            .into_iter()
-            .map(|(k, v)| {
-                let k = self.meta.attr_key_or_create(&k);
-                (k, v)
-            })
-            .collect::<HashMap<_, _>>();
-
-        let record = FileRecord {
-            compression,
-            length: byte_count.write,
-            decompressed_length: byte_count.read,
-            name: path.filename(),
-            data: next_addr,
-            attrs,
-        };
-
-        self.meta.inodes.push(Record::File(record));
-        let file_inode = Inode::new(self.meta.inodes.len() as u64).unwrap();
-
-        if let Some(inode) = inode {
-            let record = self
-                .meta
-                .record_mut(inode)
-                .unwrap()
-                .as_directory_mut()
-                .unwrap();
-            record.inodes.push(file_inode);
-        } else {
-            self.meta.root.push(file_inode);
-        }
+            Ok(record.upcast())
+        })?;
 
         Ok(&self.meta.inodes.last().unwrap().as_file().unwrap())
     }
@@ -329,7 +322,7 @@ impl BoxFileWriter {
     ) -> Result<()> {
         let inode = match self.iter().find(|r| &r.path == path) {
             Some(v) => v.inode,
-            None => todo!()
+            None => todo!(),
         };
 
         let key = self.meta.attr_key_or_create(key.as_ref());

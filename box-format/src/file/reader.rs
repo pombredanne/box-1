@@ -39,6 +39,57 @@ pub(super) fn read_trailer<R: Read + Seek>(
 }
 
 use crate::file::Inode;
+use std::collections::VecDeque;
+
+pub struct FindRecord<'a> {
+    meta: &'a BoxMetadata,
+    query: VecDeque<String>,
+    inodes: &'a [Inode],
+}
+
+impl<'a> FindRecord<'a> {
+    pub(crate) fn new(
+        meta: &'a BoxMetadata,
+        query: VecDeque<String>,
+        inodes: &'a [Inode],
+    ) -> FindRecord<'a> {
+        FindRecord {
+            meta,
+            query,
+            inodes,
+        }
+    }
+}
+
+impl<'a> Iterator for FindRecord<'a> {
+    type Item = Inode;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let candidate_name = match self.query.pop_front() {
+            Some(v) => v,
+            None => return None,
+        };
+
+        let result = self
+            .inodes
+            .iter()
+            .map(|inode| (*inode, self.meta.record(*inode).unwrap()))
+            .find(|x| x.1.name() == candidate_name);
+
+        match result {
+            Some(v) => {
+                if self.query.is_empty() {
+                    return Some(v.0);
+                } else {
+                    let mut tmp = VecDeque::new();
+                    std::mem::swap(&mut self.query, &mut tmp);
+                    FindRecord::new(self.meta, tmp, self.inodes).next()
+                }
+            }
+            None => None,
+        }
+    }
+}
 
 pub struct Records<'a> {
     meta: &'a BoxMetadata,
@@ -154,7 +205,7 @@ impl BoxFileReader {
     }
 
     #[inline(always)]
-    pub fn alignment(&self) -> Option<NonZeroU64> {
+    pub fn alignment(&self) -> u64 {
         self.header.alignment
     }
 
@@ -163,7 +214,6 @@ impl BoxFileReader {
         self.header.version
     }
 
-    /// Will return the metadata for the `.box` if it has been provided.
     #[inline(always)]
     pub fn metadata(&self) -> &BoxMetadata {
         &self.meta
@@ -208,21 +258,11 @@ impl BoxFileReader {
             .collect()
     }
 
-    pub fn record(&self, path: &BoxPath) -> Option<&Record> {
-        // TODO: remarkably naive
-        self.iter().find_map(
-            |RecordsItem {
-                 path: record_path,
-                 record,
-                 ..
-             }| {
-                if path == &record_path {
-                    Some(record)
-                } else {
-                    None
-                }
-            },
-        )
+    #[inline(always)]
+    fn record(&self, path: &BoxPath) -> Option<&Record> {
+        let path_chunks = path.iter().map(str::to_string).collect();
+        let mut finder = FindRecord::new(self.metadata(), path_chunks, &*self.metadata().root);
+        finder.next().and_then(|x| self.meta.record(x))
     }
 
     #[inline(always)]
@@ -238,12 +278,24 @@ impl BoxFileReader {
 
     #[inline(always)]
     pub fn resolve_link(&self, link: &LinkRecord) -> std::io::Result<RecordsItem> {
-        self.iter().find(|x| x.inode == link.inode).ok_or_else(|| {
-            std::io::Error::new(
+        let result = FindRecord::new(
+            self.metadata(),
+            link.target.iter().map(str::to_string).collect(),
+            &*self.metadata().root,
+        )
+        .next();
+
+        match result {
+            Some(inode) => Ok(RecordsItem {
+                inode,
+                path: link.target.to_owned(),
+                record: self.meta.record(inode).unwrap(),
+            }),
+            None => Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("no record for inode {}", link.inode.get()),
-            )
-        })
+                format!("No inode for link target: {}", link.target),
+            )),
+        }
     }
 
     #[inline(always)]
@@ -276,6 +328,7 @@ impl BoxFileReader {
         record: &Record,
         output_path: &Path,
     ) -> std::io::Result<()> {
+        println!("{} -> {}: {:?}", path, output_path.display(), record);
         match record {
             Record::File(file) => {
                 let out_file = std::fs::File::create(output_path.join(path.to_path_buf())).unwrap();
